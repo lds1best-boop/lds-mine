@@ -109,11 +109,17 @@ local function getCurrentRank()
         return nil
     end
 
+    if not nameObject:IsA("TextLabel")
+        and not nameObject:IsA("TextButton")
+        and not nameObject:IsA("TextBox") then
+        return nil
+    end
+
     return nameObject.Text
 end
 
 --------------------------------------------------
--- GET RANK DEPTH
+-- GET DEPTH FROM RANK
 --------------------------------------------------
 
 local function getRankDepth()
@@ -126,7 +132,9 @@ local function getRankDepth()
 
     rank = rank:gsub("^%s+", ""):gsub("%s+$", "")
 
-    return rank, RankDepths[rank]
+    local depth = RankDepths[rank]
+
+    return rank, depth
 end
 
 --------------------------------------------------
@@ -150,7 +158,7 @@ local function getBlockInfo(block)
     if blockId == "None" then
         return {
             Id = "None",
-            Name = "Destroyed"
+            Name = "Bloco destruído"
         }
     end
 
@@ -196,10 +204,10 @@ local function damageSpecificBlock(blockName)
 end
 
 --------------------------------------------------
--- GET BLOCK FROM WORKSPACE
+-- FIND BLOCK
 --------------------------------------------------
 
-local function getBlockAt(x, y, z)
+local function getBlockAtDepth(x, y, z)
 
     local blocksFolder = workspace.Maps.Mining.Blocks
 
@@ -222,7 +230,7 @@ local function mineBlock(x, y, z, selected)
         tostring(y) .. "_" ..
         tostring(z)
 
-    local block = getBlockAt(x, y, z)
+    local block = getBlockAtDepth(x, y, z)
 
     if not block then
         return false
@@ -258,189 +266,94 @@ local function mineBlock(x, y, z, selected)
 end
 
 --------------------------------------------------
--- FIND RANDOM EXISTING BLOCK
---
--- ONLY USES BLOCKS THAT ACTUALLY EXIST IN:
--- workspace.Maps.Mining.Blocks
---
--- X = -50 to 50
--- Z = -50 to 50
--- Y = -maxDepth or higher
+-- GET COORDINATES FROM BLOCK NAME
 --------------------------------------------------
 
-local function getRandomExistingBlock(maxDepth, selected)
+local function getBlockCoordinates(block)
 
-    local blocksFolder = workspace.Maps.Mining.Blocks
-    local validBlocks = {}
-
-    for _, block in ipairs(blocksFolder:GetChildren()) do
-
-        if block.Parent == blocksFolder then
-
-            --------------------------------------------------
-            -- READ COORDINATES FROM BLOCK NAME
-            --------------------------------------------------
-
-            local x, y, z = block.Name:match(
-                "^(-?%d+)_(-?%d+)_(-?%d+)$"
-            )
-
-            if x and y and z then
-
-                x = tonumber(x)
-                y = tonumber(y)
-                z = tonumber(z)
-
-                --------------------------------------------------
-                -- X LIMIT
-                --------------------------------------------------
-
-                if x >= -50 and x <= 50 then
-
-                    --------------------------------------------------
-                    -- Z LIMIT
-                    --------------------------------------------------
-
-                    if z >= -50 and z <= 50 then
-
-                        --------------------------------------------------
-                        -- DEPTH LIMIT
-                        --------------------------------------------------
-
-                        if y >= -maxDepth then
-
-                            local info = getBlockInfo(block)
-
-                            --------------------------------------------------
-                            -- ONLY SELECT ENABLED BLOCK TYPES
-                            --------------------------------------------------
-
-                            if info
-                            and table.find(selected, info.Id) then
-
-                                table.insert(
-                                    validBlocks,
-                                    block
-                                )
-
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    --------------------------------------------------
-    -- NOTHING FOUND
-    --------------------------------------------------
-
-    if #validBlocks == 0 then
+    if not block then
         return nil
     end
 
-    --------------------------------------------------
-    -- RANDOM EXISTING BLOCK
-    --------------------------------------------------
+    local x, y, z =
+        block.Name:match("^(-?%d+)_(-?%d+)_(-?%d+)$")
 
-    return validBlocks[
-        math.random(1, #validBlocks)
-    ]
+    if not x then
+        return nil
+    end
+
+    return tonumber(x), tonumber(y), tonumber(z)
 end
 
 --------------------------------------------------
--- RANDOM MINING
+-- GET RANDOM BLOCK AT MAX DEPTH
 --------------------------------------------------
 
-local function randomMine(maxDepth, selected)
+local function getRandomBlockAtDepth(depth, selected, lastX, lastZ)
 
     local blocksFolder = workspace.Maps.Mining.Blocks
 
-    while G.Settings["Auto Mine"] do
+    if not blocksFolder then
+        return nil
+    end
 
-        --------------------------------------------------
-        -- CHECK RANK AGAIN
-        --------------------------------------------------
+    local nearby = {}
+    local allBlocks = {}
 
-        local rank, currentMaxDepth = getRankDepth()
+    --------------------------------------------------
+    -- FIND BLOCKS ON EXACT DEPTH
+    --------------------------------------------------
 
-        if currentMaxDepth then
-            maxDepth = currentMaxDepth
-        end
+    for _, block in ipairs(blocksFolder:GetChildren()) do
 
-        --------------------------------------------------
-        -- FIND ACTUAL BLOCK IN WORKSPACE
-        --------------------------------------------------
+        if block:GetAttribute("isBlock") then
 
-        local block =
-            getRandomExistingBlock(
-                maxDepth,
-                selected
-            )
+            local x, y, z = getBlockCoordinates(block)
 
-        --------------------------------------------------
-        -- NO BLOCK FOUND
-        --------------------------------------------------
+            if x and y and z and y == depth then
 
-        if not block then
-            task.wait(0.1)
-            continue
-        end
+                local info = getBlockInfo(block)
 
-        --------------------------------------------------
-        -- MAKE SURE IT STILL EXISTS
-        --------------------------------------------------
+                if info and table.find(selected, info.Id) then
 
-        if block.Parent ~= blocksFolder then
-            task.wait()
-            continue
-        end
+                    table.insert(allBlocks, block)
 
-        --------------------------------------------------
-        -- READ COORDINATES
-        --------------------------------------------------
+                    --------------------------------------------------
+                    -- Nearby = within 5 blocks
+                    --------------------------------------------------
 
-        local x, y, z = block.Name:match(
-            "^(-?%d+)_(-?%d+)_(-?%d+)$"
-        )
+                    if math.abs(x - lastX) <= 5
+                        and math.abs(z - lastZ) <= 5 then
 
-        if x and y and z then
+                        table.insert(nearby, block)
 
-            x = tonumber(x)
-            y = tonumber(y)
-            z = tonumber(z)
+                    end
 
-            print(
-                "Random mining:",
-                block.Name,
-                "| Rank:",
-                rank,
-                "| Max depth:",
-                maxDepth
-            )
+                end
 
-            --------------------------------------------------
-            -- MINE THE ACTUAL BLOCK
-            --------------------------------------------------
-
-            mineBlock(
-                x,
-                y,
-                z,
-                selected
-            )
+            end
 
         end
-
-        --------------------------------------------------
-        -- AFTER IT IS DESTROYED:
-        -- SCAN WORKSPACE AGAIN
-        -- AND PICK ANOTHER RANDOM BLOCK
-        --------------------------------------------------
-
-        task.wait()
 
     end
+
+    --------------------------------------------------
+    -- PREFER NEARBY BLOCKS
+    --------------------------------------------------
+
+    if #nearby > 0 then
+        return nearby[math.random(1, #nearby)]
+    end
+
+    --------------------------------------------------
+    -- IF NO NEARBY BLOCK, RANDOM ANYWHERE
+    --------------------------------------------------
+
+    if #allBlocks > 0 then
+        return allBlocks[math.random(1, #allBlocks)]
+    end
+
+    return nil
 end
 
 --------------------------------------------------
@@ -462,9 +375,21 @@ tabMain:addToggleMultiCombo(
 
         task.spawn(function()
 
+            --------------------------------------------------
+            -- SAME STARTING VALUES AS YOUR ORIGINAL
+            --------------------------------------------------
+
             local currentDepth = 0
             local currentRank = nil
-            local reachedMaxDepth = false
+
+            --------------------------------------------------
+            -- RANDOM MINING VARIABLES
+            --------------------------------------------------
+
+            local randomMining = false
+            local randomX = 9
+            local randomZ = 9
+            local randomDepth = nil
 
             while G.Settings["Auto Mine"] do
 
@@ -474,62 +399,54 @@ tabMain:addToggleMultiCombo(
 
                 local rank, maxDepth = getRankDepth()
 
-                if not rank or not maxDepth then
-                    task.wait(0.1)
-                    continue
-                end
-
-                --------------------------------------------------
-                -- RANK CHANGED
-                --------------------------------------------------
-
-                if rank ~= currentRank then
-
-                    currentRank = rank
-
-                    print(
-                        "Current Rank:",
-                        rank,
-                        "| Max Depth:",
-                        maxDepth
-                    )
-
-                    currentDepth = 0
-                    reachedMaxDepth = false
-
-                end
-
-                --------------------------------------------------
-                -- NORMAL DOWNWARD MINING
-                --------------------------------------------------
-
-                if not reachedMaxDepth then
+                if rank and maxDepth then
 
                     --------------------------------------------------
-                    -- 9_0_9
-                    -- 9_-1_9
-                    -- 9_-2_9
-                    -- ...
+                    -- RANK CHANGED
                     --------------------------------------------------
 
-                    if math.abs(currentDepth) <= maxDepth then
+                    if rank ~= currentRank then
 
-                        local block = getBlockAt(
-                            9,
-                            currentDepth,
-                            9
+                        currentRank = rank
+
+                        --------------------------------------------------
+                        -- RESET EVERYTHING
+                        --------------------------------------------------
+
+                        currentDepth = 0
+
+                        randomMining = false
+
+                        randomDepth = nil
+
+                        randomX = 9
+                        randomZ = 9
+
+                        print(
+                            "Current Rank:",
+                            rank,
+                            "| Max Depth:",
+                            maxDepth
                         )
 
-                        --------------------------------------------------
-                        -- IF BLOCK EXISTS, MINE IT
-                        --------------------------------------------------
+                    end
 
-                        if block then
+                    --------------------------------------------------
+                    -- NORMAL DOWNWARD MINING
+                    --------------------------------------------------
 
-                            print(
-                                "Mining:",
-                                block.Name
-                            )
+                    if not randomMining then
+
+                        if math.abs(currentDepth) <= maxDepth then
+
+                            --------------------------------------------------
+                            -- THIS IS THE SAME PATH AS YOUR ORIGINAL
+                            --
+                            -- 9_0_9
+                            -- 9_-1_9
+                            -- 9_-2_9
+                            -- ...
+                            --------------------------------------------------
 
                             mineBlock(
                                 9,
@@ -543,55 +460,78 @@ tabMain:addToggleMultiCombo(
                         else
 
                             --------------------------------------------------
-                            -- BLOCK DOESN'T EXIST
-                            --
-                            -- DON'T KEEP TRYING TO GO DOWN
-                            -- SWITCH TO RANDOM EXISTING BLOCKS
+                            -- MAX DEPTH REACHED
                             --------------------------------------------------
 
+                            randomMining = true
+
+                            randomDepth = -maxDepth
+
+                            randomX = 9
+                            randomZ = 9
+
                             print(
-                                "No block at:",
-                                "9_" ..
-                                currentDepth ..
-                                "_9",
-                                "-> Random mining"
+                                "MAX DEPTH REACHED:",
+                                randomDepth
                             )
 
-                            reachedMaxDepth = true
+                            print(
+                                "Starting random mining at:",
+                                randomDepth
+                            )
 
                         end
 
                     else
 
                         --------------------------------------------------
-                        -- MAX DEPTH REACHED
+                        -- RANDOM MINING
+                        --
+                        -- STAYS AT THE SAME Y
                         --------------------------------------------------
 
-                        reachedMaxDepth = true
+                        local randomBlock =
+                            getRandomBlockAtDepth(
+                                randomDepth,
+                                selected,
+                                randomX,
+                                randomZ
+                            )
 
-                        print(
-                            "Reached max depth:",
-                            -maxDepth
-                        )
+                        if randomBlock then
 
-                        print(
-                            "Starting random mining..."
-                        )
+                            local x, y, z =
+                                getBlockCoordinates(randomBlock)
+
+                            if x and y and z then
+
+                                randomX = x
+                                randomZ = z
+
+                                --------------------------------------------------
+                                -- MINE RANDOM BLOCK
+                                --------------------------------------------------
+
+                                mineBlock(
+                                    x,
+                                    y,
+                                    z,
+                                    selected
+                                )
+
+                            end
+
+                        else
+
+                            task.wait()
+
+                        end
 
                     end
 
                 else
 
-                    --------------------------------------------------
-                    -- RANDOM MINING
-                    --
-                    -- ONLY ACTUAL EXISTING BLOCKS
-                    --------------------------------------------------
-
-                    randomMine(
-                        maxDepth,
-                        selected
-                    )
+                    task.wait()
 
                 end
 
