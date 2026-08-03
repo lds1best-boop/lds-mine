@@ -14,6 +14,8 @@ local tabMain = window:addTab("Main")
 local Rs = cloneref(game:GetService("ReplicatedStorage"))
 local Players = cloneref(game:GetService("Players"))
 
+local BlocksFolder = workspace.Maps.Mining.Blocks
+
 local BlocksData = require(Rs.Shared.Info.MiningInfo.Blocks)
 local MiningServiceClient = require(Rs.Shared.Services.MiningService.MiningServiceClient)
 local MiningInfo = require(Rs.Packages.Info).MiningInfo
@@ -29,11 +31,10 @@ end
 ----------------------------------------------------------------
 
 local holder =
-    game:GetService("Players").LocalPlayer
-    .PlayerGui.Main.Frames.Ranks_Mining.Holder.CurrentRank.Holder
+    Players.LocalPlayer.PlayerGui.Main.Frames.Ranks_Mining.Holder.CurrentRank.Holder
 
 ----------------------------------------------------------------
--- RANK -> MAX DEPTH
+-- RANK DEPTH
 ----------------------------------------------------------------
 
 local RankDepths = {
@@ -59,21 +60,12 @@ local RankDepths = {
     Omniversal = 799
 }
 
-----------------------------------------------------------------
--- CURRENT RANK
-----------------------------------------------------------------
-
 local CurrentRank = nil
 local CurrentDepth = nil
-
--- Changes whenever rank changes.
--- This makes the current path stop.
 local PathID = 0
 
 ----------------------------------------------------------------
 -- GET RANK
---
--- EXACTLY THE METHOD YOU PROVIDED
 ----------------------------------------------------------------
 
 local function getRank()
@@ -103,7 +95,7 @@ local function updateRank()
     local depth = RankDepths[rank]
 
     if not depth then
-        warn("Rank not found:", rank)
+        warn("Unknown rank:", rank)
         return false
     end
 
@@ -114,13 +106,11 @@ local function updateRank()
 
         PathID += 1
 
-        print("================================")
-        print("RANK:", CurrentRank)
-        print("MAX DEPTH:", -CurrentDepth)
-        print("RESTARTING PATH")
-        print("================================")
+        print("Rank:", rank)
+        print("Max depth:", -depth)
 
         return true
+
     end
 
     return false
@@ -128,7 +118,7 @@ local function updateRank()
 end
 
 ----------------------------------------------------------------
--- RANK CHECK LOOP
+-- RANK CHECK
 ----------------------------------------------------------------
 
 task.spawn(function()
@@ -149,10 +139,9 @@ end)
 -- DAMAGE BLOCK
 ----------------------------------------------------------------
 
-damageSpecificBlock = function(blockName)
+local function damageSpecificBlock(blockName)
 
     if not MiningServiceClient.mineFolder then
-        warn("MiningServiceClient ainda não foi inicializado")
         return false
     end
 
@@ -175,10 +164,10 @@ damageSpecificBlock = function(blockName)
 end
 
 ----------------------------------------------------------------
--- GET BLOCK INFO
+-- BLOCK INFO
 ----------------------------------------------------------------
 
-getBlockInfo = function(block)
+local function getBlockInfo(block)
 
     if not block then
         return nil
@@ -196,7 +185,7 @@ getBlockInfo = function(block)
     if blockId == "None" then
         return {
             Id = "None",
-            Name = "Bloco destruído"
+            Name = "Destroyed"
         }
     end
 
@@ -217,49 +206,114 @@ getBlockInfo = function(block)
 end
 
 ----------------------------------------------------------------
--- GET BLOCK AT COORDINATE
+-- PARSE COORDINATES
+--
+-- Expected:
+-- X_Y_Z
 ----------------------------------------------------------------
 
-local function getBlock(x, y, z)
+local function getCoordinates(block)
+
+    if not block then
+        return nil
+    end
+
+    local x, y, z =
+        string.match(
+            block.Name,
+            "^(-?%d+)_(-?%d+)_(-?%d+)$"
+        )
+
+    if not x then
+        return nil
+    end
+
+    return
+        tonumber(x),
+        tonumber(y),
+        tonumber(z)
+
+end
+
+----------------------------------------------------------------
+-- FIND ACTUAL BLOCK AT COORDINATES
+----------------------------------------------------------------
+
+local function getBlockAt(x, y, z)
 
     local name =
         tostring(x) .. "_" ..
         tostring(y) .. "_" ..
         tostring(z)
 
-    return workspace.Maps.Mining.Blocks:FindFirstChild(name)
+    return BlocksFolder:FindFirstChild(name)
 
 end
 
 ----------------------------------------------------------------
--- MINE BLOCK AT COORDINATE
+-- FIND ALL ACTUAL BLOCKS AT X/Z
+--
+-- DOES NOT GUESS Y.
+--
+-- It reads the blocks that actually exist.
 ----------------------------------------------------------------
 
-local function mineCoordinate(
-    x,
-    y,
-    z,
+local function getColumnBlocks(x, z, maxDepth)
+
+    local result = {}
+
+    for _, block in ipairs(BlocksFolder:GetChildren()) do
+
+        local bx, by, bz =
+            getCoordinates(block)
+
+        if bx
+            and by
+            and bz
+            and bx == x
+            and bz == z
+            and by <= 0
+            and by >= -maxDepth then
+
+            table.insert(result, {
+                block = block,
+                y = by
+            })
+
+        end
+
+    end
+
+    table.sort(
+        result,
+        function(a, b)
+            return a.y > b.y
+        end
+    )
+
+    return result
+
+end
+
+----------------------------------------------------------------
+-- MINE ONE BLOCK
+----------------------------------------------------------------
+
+local function mineBlock(
+    block,
     selected,
     pathID
 )
+
+    if not block then
+        return false
+    end
 
     if not G.Settings["Auto Mine"] then
         return false
     end
 
-    -- Rank changed.
     if pathID ~= PathID then
-        return false
-    end
-
-    -- Don't go below current rank depth.
-    if y < -CurrentDepth then
-        return false
-    end
-
-    local block = getBlock(x, y, z)
-
-    if not block then
         return false
     end
 
@@ -269,22 +323,17 @@ local function mineCoordinate(
         return false
     end
 
-    if not table.find(selected, info.Id) then
+    if not table.find(
+        selected,
+        info.Id
+    ) then
         return false
     end
-
-    ------------------------------------------------------------
-    -- MINE UNTIL BLOCK IS GONE
-    ------------------------------------------------------------
 
     while block.Parent
         and G.Settings["Auto Mine"] do
 
         if pathID ~= PathID then
-            return false
-        end
-
-        if y < -CurrentDepth then
             return false
         end
 
@@ -302,7 +351,9 @@ local function mineCoordinate(
             break
         end
 
-        damageSpecificBlock(block.Name)
+        damageSpecificBlock(
+            block.Name
+        )
 
         task.wait()
 
@@ -313,19 +364,57 @@ local function mineCoordinate(
 end
 
 ----------------------------------------------------------------
--- GO DOWN
+-- GO DOWN USING REAL BLOCKS
 ----------------------------------------------------------------
 
-local function goDown(selected, pathID)
+local function goDown(
+    selected,
+    pathID
+)
 
     local depth = CurrentDepth
 
+    if not depth then
+        return false
+    end
+
     print(
-        "Going down from 9_0_9 to:",
-        "9_" .. tostring(-depth) .. "_9"
+        "Finding real blocks from 9,0,9 to",
+        -depth
     )
 
-    for y = 0, -depth, -1 do
+    ------------------------------------------------------------
+    -- READ ACTUAL BLOCKS FROM THE GAME
+    ------------------------------------------------------------
+
+    local column =
+        getColumnBlocks(
+            9,
+            9,
+            depth
+        )
+
+    if #column == 0 then
+
+        warn(
+            "No blocks found at X=9 Z=9"
+        )
+
+        return false
+
+    end
+
+    print(
+        "Found",
+        #column,
+        "real blocks in starting column"
+    )
+
+    ------------------------------------------------------------
+    -- MINE DOWN THROUGH ACTUAL BLOCKS
+    ------------------------------------------------------------
+
+    for _, entry in ipairs(column) do
 
         if not G.Settings["Auto Mine"] then
             return false
@@ -335,10 +424,16 @@ local function goDown(selected, pathID)
             return false
         end
 
-        mineCoordinate(
-            9,
-            y,
-            9,
+        local block = entry.block
+        local y = entry.y
+
+        print(
+            "Mining down:",
+            block.Name
+        )
+
+        mineBlock(
+            block,
             selected,
             pathID
         )
@@ -350,25 +445,111 @@ local function goDown(selected, pathID)
 end
 
 ----------------------------------------------------------------
--- MINE MAX DEPTH LAYER
+-- FIND REAL BLOCKS AT MAX DEPTH
 ----------------------------------------------------------------
 
-local function mineLayer(selected, pathID)
+local function getDepthBlocks(depth)
 
-    local y = -CurrentDepth
+    local result = {}
+
+    for _, block in ipairs(
+        BlocksFolder:GetChildren()
+    ) do
+
+        local x, y, z =
+            getCoordinates(block)
+
+        if x
+            and y
+            and z
+            and y == -depth then
+
+            table.insert(
+                result,
+                block
+            )
+
+        end
+
+    end
+
+    return result
+
+end
+
+----------------------------------------------------------------
+-- MINE MAX DEPTH
+--
+-- Uses ACTUAL blocks in BlocksFolder.
+----------------------------------------------------------------
+
+local function mineDepthLayer(
+    selected,
+    pathID
+)
+
+    local depth = CurrentDepth
+
+    if not depth then
+        return
+    end
+
+    local y = -depth
 
     print(
-        "Mining layer:",
+        "Looking for actual blocks at Y:",
         y
     )
 
-    local leftToRight = true
+    local layerBlocks =
+        getDepthBlocks(depth)
+
+    if #layerBlocks == 0 then
+
+        warn(
+            "No blocks found at depth:",
+            y
+        )
+
+        return
+
+    end
+
+    print(
+        "Found",
+        #layerBlocks,
+        "blocks at depth",
+        y
+    )
 
     ------------------------------------------------------------
-    -- SAME ZIGZAG
+    -- SORT BY Z THEN X
     ------------------------------------------------------------
 
-    for z = 50, -50, -2 do
+    table.sort(
+        layerBlocks,
+        function(a, b)
+
+            local ax, ay, az =
+                getCoordinates(a)
+
+            local bx, by, bz =
+                getCoordinates(b)
+
+            if az == bz then
+                return ax < bx
+            end
+
+            return az > bz
+
+        end
+    )
+
+    ------------------------------------------------------------
+    -- MINE ACTUAL BLOCKS
+    ------------------------------------------------------------
+
+    for _, block in ipairs(layerBlocks) do
 
         if not G.Settings["Auto Mine"] then
             return
@@ -378,87 +559,32 @@ local function mineLayer(selected, pathID)
             return
         end
 
-        if leftToRight then
-
-            ----------------------------------------------------
-            -- LEFT -> RIGHT
-            ----------------------------------------------------
-
-            for x = -50, 50, 1 do
-
-                if not G.Settings["Auto Mine"] then
-                    return
-                end
-
-                if pathID ~= PathID then
-                    return
-                end
-
-                mineCoordinate(
-                    x,
-                    y,
-                    z,
-                    selected,
-                    pathID
-                )
-
-            end
-
-        else
-
-            ----------------------------------------------------
-            -- RIGHT -> LEFT
-            ----------------------------------------------------
-
-            for x = 50, -50, -1 do
-
-                if not G.Settings["Auto Mine"] then
-                    return
-                end
-
-                if pathID ~= PathID then
-                    return
-                end
-
-                mineCoordinate(
-                    x,
-                    y,
-                    z,
-                    selected,
-                    pathID
-                )
-
-            end
-
-        end
-
-        leftToRight = not leftToRight
+        mineBlock(
+            block,
+            selected,
+            pathID
+        )
 
     end
 
 end
 
 ----------------------------------------------------------------
--- COMPLETE PATH
+-- COMPLETE MINING PATH
 ----------------------------------------------------------------
 
-local function startMiningPath(selected)
-
-    ------------------------------------------------------------
-    -- GET CURRENT RANK
-    ------------------------------------------------------------
+local function minePath(selected)
 
     updateRank()
 
-    if not CurrentRank or not CurrentDepth then
-        warn("Could not determine rank/depth")
+    if not CurrentRank then
         return
     end
 
     local pathID = PathID
 
     print("================================")
-    print("STARTING MINING")
+    print("START")
     print("Rank:", CurrentRank)
     print("Depth:", -CurrentDepth)
     print("================================")
@@ -467,25 +593,29 @@ local function startMiningPath(selected)
     -- GO DOWN
     ------------------------------------------------------------
 
-    local reachedDepth =
+    local reached =
         goDown(
             selected,
             pathID
         )
 
-    if not reachedDepth then
+    if not reached then
         return
     end
 
     ------------------------------------------------------------
-    -- MINE THE LAYER
+    -- RANK CHANGED?
     ------------------------------------------------------------
 
     if pathID ~= PathID then
         return
     end
 
-    mineLayer(
+    ------------------------------------------------------------
+    -- MINE ACTUAL MAX-DEPTH LAYER
+    ------------------------------------------------------------
+
+    mineDepthLayer(
         selected,
         pathID
     )
@@ -508,12 +638,12 @@ tabMain:addToggleMultiCombo(
 
         if not value then
 
-            -- Stop current path.
             PathID += 1
 
             print("Auto Mine OFF")
 
             return
+
         end
 
         --------------------------------------------------------
@@ -522,38 +652,36 @@ tabMain:addToggleMultiCombo(
 
         updateRank()
 
+        if not CurrentDepth then
+            warn("Could not determine rank depth")
+            return
+        end
+
         print(
-            "Auto Mine ON | Rank:",
-            CurrentRank,
-            "| Depth:",
+            "Auto Mine ON"
+        )
+
+        print(
+            "Rank:",
+            CurrentRank
+        )
+
+        print(
+            "Maximum depth:",
             -CurrentDepth
         )
 
         --------------------------------------------------------
-        -- MAIN MINING LOOP
+        -- MAIN LOOP
         --------------------------------------------------------
 
         task.spawn(function()
 
             while G.Settings["Auto Mine"] do
 
-                ------------------------------------------------
-                -- CHECK RANK
-                ------------------------------------------------
-
                 updateRank()
 
-                ------------------------------------------------
-                -- START FROM 9_0_9
-                -- AND GO TO CURRENT MAX DEPTH
-                ------------------------------------------------
-
-                startMiningPath(selected)
-
-                ------------------------------------------------
-                -- If rank changed during the path,
-                -- PathID changed and this starts over.
-                ------------------------------------------------
+                minePath(selected)
 
                 task.wait()
 
