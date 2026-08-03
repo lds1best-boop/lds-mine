@@ -1,1 +1,621 @@
-hi
+repeat task.wait() until game:IsLoaded()
+
+local G = getgenv()
+
+local lib = loadstring(game:HttpGet("https://projectlds.online/loader/Library"))()
+
+local window = lib:start("Button Eternal 2", "1.0", true)
+
+local tabMain = window:addTab("Main")
+
+local Rs = cloneref(game:GetService("ReplicatedStorage"))
+local Players = cloneref(game:GetService("Players"))
+
+local BlocksData = require(Rs.Shared.Info.MiningInfo.Blocks)
+local MiningServiceClient = require(Rs.Shared.Services.MiningService.MiningServiceClient)
+local MiningInfo = require(Rs.Packages.Info).MiningInfo
+
+G.Settings = G.Settings or {}
+
+--------------------------------------------------
+-- RANK -> MAX DEPTH
+--------------------------------------------------
+
+local RankDepths = {
+    Starter = 9,
+    Advanced = 9,
+
+    Expert = 29,
+    Master = 29,
+
+    Elite = 69,
+    Champion = 69,
+    Legend = 69,
+
+    Mythic = 149,
+    Titan = 149,
+
+    Immortal = 299,
+    Celestial = 299,
+
+    Cosmic = 799,
+    Galactic = 799,
+    Eternal = 799,
+    Omniversal = 799
+}
+
+--------------------------------------------------
+-- BLOCK LIST
+--------------------------------------------------
+
+local Blocks = {}
+
+for i, g in pairs(BlocksData) do
+    table.insert(Blocks, i)
+end
+
+--------------------------------------------------
+-- CURRENT RANK
+--------------------------------------------------
+
+local function getCurrentRank()
+
+    local player = Players.LocalPlayer
+    local playerGui = player:FindFirstChild("PlayerGui")
+
+    if not playerGui then
+        return nil
+    end
+
+    local main = playerGui:FindFirstChild("Main")
+    if not main then
+        return nil
+    end
+
+    local frames = main:FindFirstChild("Frames")
+    if not frames then
+        return nil
+    end
+
+    local ranksMining = frames:FindFirstChild("Ranks_Mining")
+    if not ranksMining then
+        return nil
+    end
+
+    local holder = ranksMining:FindFirstChild("Holder")
+    if not holder then
+        return nil
+    end
+
+    local currentRank = holder:FindFirstChild("CurrentRank")
+    if not currentRank then
+        return nil
+    end
+
+    local currentHolder = currentRank:FindFirstChild("Holder")
+    if not currentHolder then
+        return nil
+    end
+
+    local nameObject = currentHolder:FindFirstChild("Name")
+    if not nameObject then
+        return nil
+    end
+
+    return nameObject.Text
+end
+
+--------------------------------------------------
+-- RANK DEPTH
+--------------------------------------------------
+
+local function getRankDepth()
+
+    local rank = getCurrentRank()
+
+    if not rank then
+        return nil, nil
+    end
+
+    rank = rank:gsub("^%s+", ""):gsub("%s+$", "")
+
+    return rank, RankDepths[rank]
+end
+
+--------------------------------------------------
+-- BLOCK INFO
+--------------------------------------------------
+
+local function getBlockInfo(block)
+
+    if not block then
+        return nil
+    end
+
+    local blockData = MiningServiceClient.blocks[block.Name]
+
+    if not blockData then
+        return nil
+    end
+
+    local blockId = blockData[1]
+
+    if blockId == "None" then
+        return {
+            Id = "None",
+            Name = "Destroyed"
+        }
+    end
+
+    local info = MiningInfo:getBlock(blockId)
+
+    if not info then
+        return nil
+    end
+
+    return {
+        Id = blockId,
+        Name = info.name,
+        HP = info.hp,
+        Value = info.value,
+        Model = info.model
+    }
+end
+
+--------------------------------------------------
+-- DAMAGE BLOCK
+--------------------------------------------------
+
+local function damageSpecificBlock(blockName)
+
+    if not MiningServiceClient.mineFolder then
+        return false
+    end
+
+    local block = MiningServiceClient.mineFolder:FindFirstChild(blockName)
+
+    if not block then
+        return false
+    end
+
+    if not block:GetAttribute("isBlock") then
+        return false
+    end
+
+    MiningServiceClient.currentBlock = block
+    MiningServiceClient:damageBlock()
+
+    return true
+end
+
+--------------------------------------------------
+-- FIND BLOCK
+--------------------------------------------------
+
+local function getBlockAt(x, y, z)
+
+    local folder = workspace.Maps.Mining.Blocks
+
+    local name =
+        tostring(x) .. "_" ..
+        tostring(y) .. "_" ..
+        tostring(z)
+
+    return folder:FindFirstChild(name)
+end
+
+--------------------------------------------------
+-- MINE BLOCK
+--------------------------------------------------
+
+local function mineBlock(x, y, z, selected)
+
+    local name =
+        tostring(x) .. "_" ..
+        tostring(y) .. "_" ..
+        tostring(z)
+
+    local block = getBlockAt(x, y, z)
+
+    if not block then
+        return false
+    end
+
+    local info = getBlockInfo(block)
+
+    if not info then
+        return false
+    end
+
+    if not table.find(selected, info.Id) then
+        return false
+    end
+
+    repeat
+
+        if not G.Settings["Auto Mine"] then
+            return false
+        end
+
+        if block.Parent == nil then
+            break
+        end
+
+        damageSpecificBlock(name)
+
+        task.wait()
+
+    until block.Parent == nil
+
+    return true
+end
+
+--------------------------------------------------
+-- GET RANDOM VALID NEIGHBOR
+--
+-- X/Z can NEVER go outside -50 to 50
+--
+-- Y can NEVER go below max depth
+--
+-- Y can ONLY stay the same or go UP
+--------------------------------------------------
+
+local function getRandomNeighbor(x, y, z, maxDepth, selected)
+
+    local folder = workspace.Maps.Mining.Blocks
+
+    local possible = {}
+
+    local directions = {
+        {-1, 0, 0}, -- LEFT
+        { 1, 0, 0}, -- RIGHT
+        { 0, 1, 0}, -- UP
+        { 0, 0,-1}, -- BACK
+        { 0, 0, 1}  -- FORWARD
+    }
+
+    -- Shuffle directions
+    for i = #directions, 2, -1 do
+        local j = math.random(i)
+        directions[i], directions[j] =
+            directions[j], directions[i]
+    end
+
+    for _, direction in ipairs(directions) do
+
+        local nx = x + direction[1]
+        local ny = y + direction[2]
+        local nz = z + direction[3]
+
+        --------------------------------------------------
+        -- SIDE LIMITS
+        --------------------------------------------------
+
+        if nx >= -50 and nx <= 50
+        and nz >= -50 and nz <= 50 then
+
+            --------------------------------------------------
+            -- DEPTH LIMIT
+            --------------------------------------------------
+
+            if ny >= -maxDepth then
+
+                local name =
+                    tostring(nx) .. "_" ..
+                    tostring(ny) .. "_" ..
+                    tostring(nz)
+
+                local block = folder:FindFirstChild(name)
+
+                if block then
+
+                    local info = getBlockInfo(block)
+
+                    if info
+                    and table.find(selected, info.Id) then
+
+                        table.insert(possible, {
+                            x = nx,
+                            y = ny,
+                            z = nz
+                        })
+
+                    end
+                end
+            end
+        end
+    end
+
+    if #possible == 0 then
+        return nil
+    end
+
+    return possible[math.random(1, #possible)]
+end
+
+--------------------------------------------------
+-- RANDOM MINING
+--------------------------------------------------
+
+local function randomMine(x, y, z, maxDepth, selected)
+
+    local stuckCount = 0
+
+    while G.Settings["Auto Mine"] do
+
+        --------------------------------------------------
+        -- CHECK RANK EVERY LOOP
+        --------------------------------------------------
+
+        local rank, currentMaxDepth = getRankDepth()
+
+        if currentMaxDepth then
+            maxDepth = currentMaxDepth
+        end
+
+        --------------------------------------------------
+        -- HARD LIMITS
+        --------------------------------------------------
+
+        if x < -50 then
+            x = -50
+        elseif x > 50 then
+            x = 50
+        end
+
+        if z < -50 then
+            z = -50
+        elseif z > 50 then
+            z = 50
+        end
+
+        if y < -maxDepth then
+            y = -maxDepth
+        end
+
+        --------------------------------------------------
+        -- FIND RANDOM NEIGHBOR
+        --------------------------------------------------
+
+        local nextBlock =
+            getRandomNeighbor(
+                x,
+                y,
+                z,
+                maxDepth,
+                selected
+            )
+
+        if nextBlock then
+
+            x = nextBlock.x
+            y = nextBlock.y
+            z = nextBlock.z
+
+            stuckCount = 0
+
+            print(
+                "Random:",
+                x .. "_" .. y .. "_" .. z
+            )
+
+            --------------------------------------------------
+            -- MINE IT
+            --------------------------------------------------
+
+            mineBlock(
+                x,
+                y,
+                z,
+                selected
+            )
+
+        else
+
+            --------------------------------------------------
+            -- NO NEIGHBOR FOUND
+            --------------------------------------------------
+
+            stuckCount += 1
+
+            if stuckCount >= 3 then
+
+                --------------------------------------------------
+                -- FIND ANY VALID BLOCK IN THE AREA
+                --------------------------------------------------
+
+                local allBlocks = {}
+
+                for _, block in ipairs(folder:GetChildren()) do
+
+                    local bx, by, bz =
+                        block.Name:match(
+                            "^(-?%d+)_(-?%d+)_(-?%d+)$"
+                        )
+
+                    if bx and by and bz then
+
+                        bx = tonumber(bx)
+                        by = tonumber(by)
+                        bz = tonumber(bz)
+
+                        if bx >= -50 and bx <= 50
+                        and bz >= -50 and bz <= 50
+                        and by >= -maxDepth then
+
+                            local info = getBlockInfo(block)
+
+                            if info
+                            and table.find(selected, info.Id) then
+
+                                table.insert(
+                                    allBlocks,
+                                    {
+                                        x = bx,
+                                        y = by,
+                                        z = bz
+                                    }
+                                )
+
+                            end
+                        end
+                    end
+                end
+
+                --------------------------------------------------
+                -- JUMP TO RANDOM VALID BLOCK
+                --------------------------------------------------
+
+                if #allBlocks > 0 then
+
+                    local randomBlock =
+                        allBlocks[
+                            math.random(1, #allBlocks)
+                        ]
+
+                    x = randomBlock.x
+                    y = randomBlock.y
+                    z = randomBlock.z
+
+                    print(
+                        "Random reposition:",
+                        x .. "_" .. y .. "_" .. z
+                    )
+
+                    mineBlock(
+                        x,
+                        y,
+                        z,
+                        selected
+                    )
+
+                end
+
+                stuckCount = 0
+            end
+
+            task.wait()
+        end
+
+        task.wait()
+    end
+end
+
+--------------------------------------------------
+-- AUTO MINE
+--------------------------------------------------
+
+tabMain:addToggleMultiCombo(
+    "Auto Mine",
+    "...",
+    Blocks,
+    "All",
+    function(value, selected)
+
+        G.Settings["Auto Mine"] = value
+
+        if not value then
+            return
+        end
+
+        task.spawn(function()
+
+            local currentDepth = 0
+            local currentRank = nil
+            local reachedMaxDepth = false
+
+            while G.Settings["Auto Mine"] do
+
+                --------------------------------------------------
+                -- CHECK RANK
+                --------------------------------------------------
+
+                local rank, maxDepth = getRankDepth()
+
+                if not rank or not maxDepth then
+                    task.wait()
+                    continue
+                end
+
+                --------------------------------------------------
+                -- RANK CHANGED
+                --------------------------------------------------
+
+                if rank ~= currentRank then
+
+                    currentRank = rank
+
+                    print(
+                        "Rank:",
+                        rank,
+                        "| Max Depth:",
+                        maxDepth
+                    )
+
+                    currentDepth = 0
+                    reachedMaxDepth = false
+
+                end
+
+                --------------------------------------------------
+                -- GO DOWN FROM 0
+                --------------------------------------------------
+
+                if not reachedMaxDepth then
+
+                    if math.abs(currentDepth) <= maxDepth then
+
+                        print(
+                            "Mining:",
+                            "9_" .. currentDepth .. "_9"
+                        )
+
+                        mineBlock(
+                            9,
+                            currentDepth,
+                            9,
+                            selected
+                        )
+
+                        currentDepth -= 1
+
+                    else
+
+                        --------------------------------------------------
+                        -- MAX DEPTH REACHED
+                        --------------------------------------------------
+
+                        reachedMaxDepth = true
+
+                        print(
+                            "MAX DEPTH:",
+                            -maxDepth
+                        )
+
+                        print(
+                            "Starting random mining area: -50 to 50"
+                        )
+
+                    end
+
+                else
+
+                    --------------------------------------------------
+                    -- RANDOM MINING
+                    --------------------------------------------------
+
+                    randomMine(
+                        9,
+                        -maxDepth,
+                        9,
+                        maxDepth,
+                        selected
+                    )
+
+                end
+
+                task.wait()
+            end
+        end)
+    end
+)
