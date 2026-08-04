@@ -1,1 +1,1272 @@
-hi
+----------------------------------------
+-- FLUENT UI
+--------------------------------------------------
+
+local Fluent = loadstring(game:HttpGet(
+    "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
+))()
+
+local SaveManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"
+))()
+
+local InterfaceManager = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"
+))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Button Eternal 2",
+    SubTitle = "by iamrich",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({
+        Title = "Main",
+        Icon = ""
+    }),
+
+    Settings = Window:AddTab({
+        Title = "Settings",
+        Icon = "settings"
+    })
+}
+
+--------------------------------------------------
+-- SERVICES
+--------------------------------------------------
+
+local G = getgenv()
+
+local Rs = cloneref(game:GetService("ReplicatedStorage"))
+local Players = cloneref(game:GetService("Players"))
+
+local LocalPlayer = Players.LocalPlayer
+
+--------------------------------------------------
+-- MODULES
+--------------------------------------------------
+
+local BlocksData =
+    require(Rs.Shared.Info.MiningInfo.Blocks)
+
+local MiningServiceClient =
+    require(Rs.Shared.Services.MiningService.MiningServiceClient)
+
+local MiningInfo =
+    require(Rs.Packages.Info).MiningInfo
+
+G.Settings = G.Settings or {}
+
+--------------------------------------------------
+-- RANK -> MAX DEPTH
+--------------------------------------------------
+
+local RankDepths = {
+    Starter = 9,
+    Advanced = 9,
+
+    Expert = 29,
+    Master = 29,
+
+    Elite = 69,
+    Champion = 69,
+    Legend = 69,
+
+    Mythic = 149,
+    Titan = 149,
+
+    Immortal = 299,
+    Celestial = 299,
+
+    Cosmic = 799,
+    Galactic = 799,
+    Eternal = 799,
+    Omniversal = 799
+}
+
+--------------------------------------------------
+-- STONE = LOWEST PRIORITY
+--------------------------------------------------
+
+local StoneOres = {
+    StoneOre = true,
+    StoneOre1 = true,
+    StoneOre2 = true,
+    StoneOre3 = true,
+    StoneOre4 = true,
+    StoneOre5 = true,
+    StoneOre6 = true,
+    StoneOre7 = true
+}
+
+--------------------------------------------------
+-- BLOCK LIST
+--------------------------------------------------
+
+local Blocks = {}
+
+for i, _ in pairs(BlocksData) do
+    if string.lower(tostring(i)) ~= "bedrock" then
+        table.insert(Blocks, i)
+    end
+end
+
+table.sort(Blocks)
+
+--------------------------------------------------
+-- DROPDOWN VALUES
+--------------------------------------------------
+
+local DropdownValues = {}
+
+for _, blockId in ipairs(Blocks) do
+    DropdownValues[blockId] = blockId
+end
+
+--------------------------------------------------
+-- DEFAULT:
+-- EVERYTHING SELECTED EXCEPT BEDROCK
+--------------------------------------------------
+
+local DefaultSelected = {}
+
+for _, blockId in ipairs(Blocks) do
+    if string.lower(tostring(blockId)) ~= "bedrock" then
+        DefaultSelected[blockId] = true
+    end
+end
+
+--------------------------------------------------
+-- SELECTED BLOCKS
+--------------------------------------------------
+
+local SelectedBlocks = {}
+
+local function rebuildSelectedBlocks(value)
+
+    table.clear(SelectedBlocks)
+
+    if type(value) ~= "table" then
+        return
+    end
+
+    for blockId, enabled in pairs(value) do
+
+        if enabled
+            and string.lower(tostring(blockId)) ~= "bedrock"
+        then
+
+            table.insert(
+                SelectedBlocks,
+                blockId
+            )
+        end
+    end
+end
+
+rebuildSelectedBlocks(DefaultSelected)
+
+--------------------------------------------------
+-- CURRENT RANK
+--------------------------------------------------
+
+local function getCurrentRank()
+
+    local playerGui =
+        LocalPlayer:FindFirstChild("PlayerGui")
+
+    if not playerGui then
+        return nil
+    end
+
+    local main =
+        playerGui:FindFirstChild("Main")
+
+    if not main then
+        return nil
+    end
+
+    local frames =
+        main:FindFirstChild("Frames")
+
+    if not frames then
+        return nil
+    end
+
+    local ranksMining =
+        frames:FindFirstChild("Ranks_Mining")
+
+    if not ranksMining then
+        return nil
+    end
+
+    local holder =
+        ranksMining:FindFirstChild("Holder")
+
+    if not holder then
+        return nil
+    end
+
+    local currentRank =
+        holder:FindFirstChild("CurrentRank")
+
+    if not currentRank then
+        return nil
+    end
+
+    local currentHolder =
+        currentRank:FindFirstChild("Holder")
+
+    if not currentHolder then
+        return nil
+    end
+
+    local nameObject =
+        currentHolder:FindFirstChild("Name")
+
+    if not nameObject then
+        return nil
+    end
+
+    if not nameObject:IsA("TextLabel")
+        and not nameObject:IsA("TextButton")
+        and not nameObject:IsA("TextBox")
+    then
+        return nil
+    end
+
+    return nameObject.Text
+end
+
+--------------------------------------------------
+-- GET RANK DEPTH
+--------------------------------------------------
+
+local function getRankDepth()
+
+    local rank = getCurrentRank()
+
+    if not rank then
+        return nil, nil
+    end
+
+    rank =
+        rank:gsub("^%s+", "")
+            :gsub("%s+$", "")
+
+    return rank, RankDepths[rank]
+end
+
+--------------------------------------------------
+-- GET BLOCK INFO
+--------------------------------------------------
+
+local function getBlockInfo(block)
+
+    if not block then
+        return nil
+    end
+
+    local blockData =
+        MiningServiceClient.blocks[block.Name]
+
+    if not blockData then
+        return nil
+    end
+
+    local blockId = blockData[1]
+
+    if blockId == "None" then
+        return nil
+    end
+
+    if string.lower(tostring(blockId)) == "bedrock" then
+        return nil
+    end
+
+    local info =
+        MiningInfo:getBlock(blockId)
+
+    if not info then
+        return nil
+    end
+
+    return {
+        Id = blockId,
+
+        Name = info.name,
+
+        HP = info.hp,
+
+        Value = info.value,
+
+        Model = info.model,
+
+        Rarity =
+            info.rarity
+            or info.Rarity
+            or info.rarityName
+    }
+end
+
+--------------------------------------------------
+-- RARITY PRIORITY
+--------------------------------------------------
+
+local RarityPriority = {
+    Common = 1,
+    Uncommon = 2,
+    Rare = 3,
+    Epic = 4,
+    Legendary = 5,
+    Mythic = 6,
+    Divine = 7,
+    Celestial = 8,
+    Cosmic = 9,
+    Secret = 10
+}
+
+local function getRarityPriority(info)
+
+    if not info then
+        return 0
+    end
+
+    local rarity = info.Rarity
+
+    if type(rarity) == "number" then
+        return rarity
+    end
+
+    if type(rarity) == "string" then
+        return RarityPriority[rarity] or 0
+    end
+
+    return 0
+end
+
+--------------------------------------------------
+-- COORDINATES
+--------------------------------------------------
+
+local function getBlockCoordinates(block)
+
+    if not block then
+        return nil
+    end
+
+    local x, y, z =
+        block.Name:match(
+            "^(-?%d+)_(-?%d+)_(-?%d+)$"
+        )
+
+    if not x then
+        return nil
+    end
+
+    return
+        tonumber(x),
+        tonumber(y),
+        tonumber(z)
+end
+
+--------------------------------------------------
+-- GET BLOCK AT DEPTH
+--------------------------------------------------
+
+local function getBlockAtDepth(x, y, z)
+
+    local maps =
+        workspace:FindFirstChild("Maps")
+
+    if not maps then
+        return nil
+    end
+
+    local mining =
+        maps:FindFirstChild("Mining")
+
+    if not mining then
+        return nil
+    end
+
+    local folder =
+        mining:FindFirstChild("Blocks")
+
+    if not folder then
+        return nil
+    end
+
+    local blockName =
+        tostring(x) .. "_" ..
+        tostring(y) .. "_" ..
+        tostring(z)
+
+    return folder:FindFirstChild(blockName)
+end
+
+--------------------------------------------------
+-- DAMAGE BLOCK
+--------------------------------------------------
+
+local function damageSpecificBlock(blockName)
+
+    if not MiningServiceClient.mineFolder then
+        return false
+    end
+
+    local block =
+        MiningServiceClient.mineFolder
+        :FindFirstChild(blockName)
+
+    if not block then
+        return false
+    end
+
+    if not block:GetAttribute("isBlock") then
+        return false
+    end
+
+    MiningServiceClient.currentBlock = block
+
+    MiningServiceClient:damageBlock()
+
+    return true
+end
+
+--------------------------------------------------
+-- RESET TOKEN
+--------------------------------------------------
+
+G.MiningResetToken =
+    G.MiningResetToken or 0
+
+local function resetMiningCycle()
+
+    G.MiningResetToken += 1
+
+    return G.MiningResetToken
+end
+
+--------------------------------------------------
+-- MINE BLOCK
+--------------------------------------------------
+
+local function mineBlock(
+    block,
+    selected,
+    resetToken
+)
+
+    if not block then
+        return false
+    end
+
+    local info =
+        getBlockInfo(block)
+
+    if not info then
+        return false
+    end
+
+    if string.lower(tostring(info.Id)) == "bedrock" then
+        return false
+    end
+
+    if not table.find(selected, info.Id) then
+        return false
+    end
+
+    while
+        block.Parent
+        and G.Settings["Auto Mine"]
+        and resetToken == G.MiningResetToken
+    do
+
+        damageSpecificBlock(block.Name)
+
+        task.wait()
+    end
+
+    return true
+end
+
+--------------------------------------------------
+-- FIND BEST BLOCK ON LAYER
+--------------------------------------------------
+
+local function getBestBlockAtDepth(
+    depth,
+    selected,
+    lastX,
+    lastZ
+)
+
+    local maps =
+        workspace:FindFirstChild("Maps")
+
+    if not maps then
+        return nil
+    end
+
+    local mining =
+        maps:FindFirstChild("Mining")
+
+    if not mining then
+        return nil
+    end
+
+    local folder =
+        mining:FindFirstChild("Blocks")
+
+    if not folder then
+        return nil
+    end
+
+    local priorityBlocks = {}
+    local stoneBlocks = {}
+
+    for _, block in ipairs(folder:GetChildren()) do
+
+        if block:GetAttribute("isBlock") then
+
+            local x, y, z =
+                getBlockCoordinates(block)
+
+            if x and y and z and y == depth then
+
+                local info =
+                    getBlockInfo(block)
+
+                if
+                    info
+                    and string.lower(
+                        tostring(info.Id)
+                    ) ~= "bedrock"
+                    and table.find(
+                        selected,
+                        info.Id
+                    )
+                then
+
+                    local distance =
+                        math.abs(x - lastX)
+                        +
+                        math.abs(z - lastZ)
+
+                    --------------------------------------------------
+                    -- STONE
+                    --------------------------------------------------
+
+                    if StoneOres[info.Id] then
+
+                        table.insert(
+                            stoneBlocks,
+                            {
+                                Block = block,
+                                Distance = distance
+                            }
+                        )
+
+                    --------------------------------------------------
+                    -- ORE
+                    --------------------------------------------------
+
+                    else
+
+                        table.insert(
+                            priorityBlocks,
+                            {
+                                Block = block,
+
+                                Rarity =
+                                    getRarityPriority(info),
+
+                                Distance = distance
+                            }
+                        )
+                    end
+                end
+            end
+        end
+    end
+
+    --------------------------------------------------
+    -- ORE FIRST
+    --------------------------------------------------
+
+    table.sort(
+        priorityBlocks,
+        function(a, b)
+
+            if a.Rarity ~= b.Rarity then
+                return a.Rarity > b.Rarity
+            end
+
+            return a.Distance < b.Distance
+        end
+    )
+
+    if #priorityBlocks > 0 then
+        return priorityBlocks[1].Block
+    end
+
+    --------------------------------------------------
+    -- STONE FALLBACK
+    --------------------------------------------------
+
+    if #stoneBlocks > 0 then
+
+        table.sort(
+            stoneBlocks,
+            function(a, b)
+                return a.Distance < b.Distance
+            end
+        )
+
+        return stoneBlocks[1].Block
+    end
+
+    return nil
+end
+
+--------------------------------------------------
+-- VARIABLES
+--------------------------------------------------
+
+local AutoMineEnabled = false
+
+local AutoMineLoopId = 0
+
+--------------------------------------------------
+-- START MINING
+--------------------------------------------------
+
+local function startMining()
+
+    local resetToken =
+        resetMiningCycle()
+
+    task.spawn(function()
+
+        --------------------------------------------------
+        -- ALWAYS START AT 0
+        --------------------------------------------------
+
+        local currentDepth = 0
+
+        local currentRank = nil
+
+        local currentMaxDepth = nil
+
+        --------------------------------------------------
+        -- RANDOM FINAL LAYERS
+        --------------------------------------------------
+
+        local randomMining = false
+
+        local randomX = 9
+        local randomZ = 9
+
+        local randomLayers = {}
+
+        local randomLayerIndex = 1
+
+        --------------------------------------------------
+        -- MAIN LOOP
+        --------------------------------------------------
+
+        while
+            AutoMineEnabled
+            and G.Settings["Auto Mine"]
+            and resetToken == G.MiningResetToken
+        do
+
+            local selected =
+                SelectedBlocks
+
+            if #selected == 0 then
+                task.wait(0.25)
+                continue
+            end
+
+            --------------------------------------------------
+            -- GET RANK
+            --------------------------------------------------
+
+            local rank, maxDepth =
+                getRankDepth()
+
+            if rank and maxDepth then
+
+                --------------------------------------------------
+                -- INITIALIZE
+                --------------------------------------------------
+
+                if currentMaxDepth == nil then
+
+                    currentRank = rank
+
+                    currentMaxDepth =
+                        maxDepth
+
+                    currentDepth = 0
+
+                    randomMining = false
+
+                    randomX = 9
+                    randomZ = 9
+
+                    randomLayers = {}
+
+                    randomLayerIndex = 1
+                end
+
+                --------------------------------------------------
+                -- NEW DEEPER LAYER UNLOCKED
+                --
+                -- RESET TO 0
+                --------------------------------------------------
+
+                if maxDepth > currentMaxDepth then
+
+                    currentRank = rank
+
+                    currentMaxDepth =
+                        maxDepth
+
+                    currentDepth = 0
+
+                    randomMining = false
+
+                    randomX = 9
+                    randomZ = 9
+
+                    randomLayers = {}
+
+                    randomLayerIndex = 1
+
+                    resetToken =
+                        resetMiningCycle()
+
+                    task.wait(0.5)
+
+                    continue
+                end
+
+                --------------------------------------------------
+                -- RANK CHANGED
+                --
+                -- RESET TO 0
+                --------------------------------------------------
+
+                if rank ~= currentRank then
+
+                    currentRank = rank
+
+                    currentDepth = 0
+
+                    randomMining = false
+
+                    randomX = 9
+                    randomZ = 9
+
+                    randomLayers = {}
+
+                    randomLayerIndex = 1
+
+                    resetToken =
+                        resetMiningCycle()
+
+                    task.wait(0.5)
+
+                    continue
+                end
+
+                --------------------------------------------------
+                -- NORMAL MINING
+                --
+                -- 0
+                -- -1
+                -- -2
+                -- ...
+                -- -MAX
+                --------------------------------------------------
+
+                if not randomMining then
+
+                    if
+                        math.abs(currentDepth)
+                        <= maxDepth
+                    then
+
+                        local block =
+                            getBlockAtDepth(
+                                9,
+                                currentDepth,
+                                9
+                            )
+
+                        if block then
+
+                            local info =
+                                getBlockInfo(block)
+
+                            if
+                                info
+                                and table.find(
+                                    selected,
+                                    info.Id
+                                )
+                            then
+
+                                mineBlock(
+                                    block,
+                                    selected,
+                                    resetToken
+                                )
+                            end
+                        end
+
+                        currentDepth -= 1
+
+                    else
+
+                        --------------------------------------------------
+                        -- MAX DEPTH REACHED
+                        --------------------------------------------------
+
+                        randomMining = true
+
+                        randomLayers = {
+                            -maxDepth,
+                            -maxDepth + 1,
+                            -maxDepth + 2
+                        }
+
+                        randomLayerIndex = 1
+
+                        randomX = 9
+                        randomZ = 9
+                    end
+
+                else
+
+                    --------------------------------------------------
+                    -- RANDOM FINAL 3 LAYERS
+                    --------------------------------------------------
+
+                    local randomDepth =
+                        randomLayers[
+                            randomLayerIndex
+                        ]
+
+                    local randomBlock =
+                        getBestBlockAtDepth(
+                            randomDepth,
+                            selected,
+                            randomX,
+                            randomZ
+                        )
+
+                    if randomBlock then
+
+                        local x, y, z =
+                            getBlockCoordinates(
+                                randomBlock
+                            )
+
+                        if x and y and z then
+
+                            randomX = x
+                            randomZ = z
+
+                            mineBlock(
+                                randomBlock,
+                                selected,
+                                resetToken
+                            )
+                        end
+
+                    else
+
+                        randomLayerIndex += 1
+
+                        if randomLayerIndex > 3 then
+                            randomLayerIndex = 1
+                        end
+
+                        task.wait()
+                    end
+                end
+
+            else
+
+                task.wait(0.25)
+            end
+
+            task.wait()
+        end
+    end)
+end
+
+--------------------------------------------------
+-- STOP MINING
+--------------------------------------------------
+
+local function stopMining()
+
+    AutoMineEnabled = false
+
+    G.Settings["Auto Mine"] = false
+
+    resetMiningCycle()
+end
+
+--------------------------------------------------
+-- AUTO MINE TOGGLE
+--------------------------------------------------
+
+local AutoMineToggle =
+    Tabs.Main:AddToggle(
+        "AutoMine",
+        {
+            Title = "Auto Mine",
+
+            Description =
+                "ON 20s -> OFF 0.8s -> ON",
+
+            Default = false
+        }
+    )
+
+--------------------------------------------------
+-- TOGGLE CALLBACK
+--------------------------------------------------
+
+AutoMineToggle:OnChanged(function()
+
+    local enabled =
+        AutoMineToggle.Value
+
+    --------------------------------------------------
+    -- MANUAL OFF
+    --------------------------------------------------
+
+    if not enabled then
+
+        AutoMineEnabled = false
+
+        G.Settings["Auto Mine"] = false
+
+        resetMiningCycle()
+
+        --------------------------------------------------
+        -- CANCEL OLD 20 SECOND LOOP
+        --------------------------------------------------
+
+        AutoMineLoopId += 1
+
+        return
+    end
+
+    --------------------------------------------------
+    -- NO BLOCKS
+    --------------------------------------------------
+
+    if #SelectedBlocks == 0 then
+
+        AutoMineToggle:SetValue(false)
+
+        Fluent:Notify({
+            Title = "Auto Mine",
+            Content = "Select at least one block.",
+            Duration = 3
+        })
+
+        return
+    end
+
+    --------------------------------------------------
+    -- ENABLE
+    --------------------------------------------------
+
+    AutoMineEnabled = true
+
+    G.Settings["Auto Mine"] = true
+
+    --------------------------------------------------
+    -- START FROM 0
+    --------------------------------------------------
+
+    startMining()
+
+    --------------------------------------------------
+    -- NEW TOGGLE LOOP
+    --------------------------------------------------
+
+    AutoMineLoopId += 1
+
+    local myLoopId =
+        AutoMineLoopId
+
+    task.spawn(function()
+
+        while
+            AutoMineToggle.Value
+            and G.Settings["Auto Mine"]
+            and AutoMineEnabled
+            and myLoopId == AutoMineLoopId
+        do
+
+            --------------------------------------------------
+            -- WAIT 20 SECONDS
+            --------------------------------------------------
+
+            task.wait(20)
+
+            --------------------------------------------------
+            -- CHECK
+            --------------------------------------------------
+
+            if
+                not AutoMineToggle.Value
+                or not G.Settings["Auto Mine"]
+                or not AutoMineEnabled
+                or myLoopId ~= AutoMineLoopId
+            then
+                break
+            end
+
+            --------------------------------------------------
+            -- TURN OFF
+            --------------------------------------------------
+
+            AutoMineEnabled = false
+
+            G.Settings["Auto Mine"] = false
+
+            resetMiningCycle()
+
+            --------------------------------------------------
+            -- UI OFF
+            --------------------------------------------------
+
+            AutoMineToggle:SetValue(false)
+
+            --------------------------------------------------
+            -- WAIT 0.8 SECONDS
+            --------------------------------------------------
+
+            task.wait(0.8)
+
+            --------------------------------------------------
+            -- CHECK AGAIN
+            --------------------------------------------------
+
+            if myLoopId ~= AutoMineLoopId then
+                break
+            end
+
+            --------------------------------------------------
+            -- TURN ON
+            --------------------------------------------------
+
+            AutoMineEnabled = true
+
+            G.Settings["Auto Mine"] = true
+
+            --------------------------------------------------
+            -- UI ON
+            --------------------------------------------------
+
+            AutoMineToggle:SetValue(true)
+
+            --------------------------------------------------
+            -- START AGAIN FROM 0
+            --------------------------------------------------
+
+            startMining()
+        end
+    end)
+end)
+
+--------------------------------------------------
+-- BLOCK DROPDOWN
+--------------------------------------------------
+
+local BlockDropdown =
+    Tabs.Main:AddDropdown(
+        "MiningBlocks",
+        {
+            Title = "Mining Blocks",
+
+            Description =
+                "All blocks selected except Bedrock.",
+
+            Values = DropdownValues,
+
+            Multi = true,
+
+            Default = DefaultSelected
+        }
+    )
+
+--------------------------------------------------
+-- DROPDOWN CHANGED
+--------------------------------------------------
+
+BlockDropdown:OnChanged(function(value)
+
+    rebuildSelectedBlocks(value)
+
+    --------------------------------------------------
+    -- REMOVE BEDROCK
+    --------------------------------------------------
+
+    local cleanSelection = {}
+
+    for _, blockId in ipairs(SelectedBlocks) do
+
+        if string.lower(
+            tostring(blockId)
+        ) ~= "bedrock" then
+
+            table.insert(
+                cleanSelection,
+                blockId
+            )
+        end
+    end
+
+    SelectedBlocks =
+        cleanSelection
+
+    --------------------------------------------------
+    -- IF AUTO MINE IS ON,
+    -- RESTART FROM 0
+    --------------------------------------------------
+
+    if AutoMineEnabled then
+
+        resetMiningCycle()
+
+        task.wait(0.1)
+
+        if AutoMineEnabled then
+            startMining()
+        end
+    end
+end)
+
+--------------------------------------------------
+-- CHARACTER RESET
+--------------------------------------------------
+
+LocalPlayer.CharacterAdded:Connect(
+    function()
+
+        if not AutoMineEnabled then
+            return
+        end
+
+        --------------------------------------------------
+        -- KILL CURRENT MINING LOOP
+        --------------------------------------------------
+
+        resetMiningCycle()
+
+        --------------------------------------------------
+        -- WAIT FOR RESPAWN
+        --------------------------------------------------
+
+        task.wait(0.8)
+
+        --------------------------------------------------
+        -- START FROM 0
+        --------------------------------------------------
+
+        if AutoMineEnabled then
+            startMining()
+        end
+    end
+)
+
+--------------------------------------------------
+-- SETTINGS
+--------------------------------------------------
+
+Tabs.Settings:AddParagraph({
+    Title = "Mining",
+    Content =
+        "Mining always starts at depth 0 and goes down to the maximum depth unlocked by your rank."
+})
+
+Tabs.Settings:AddParagraph({
+    Title = "Rank Unlock",
+    Content =
+        "When a new deeper layer is unlocked, mining resets to 0."
+})
+
+Tabs.Settings:AddParagraph({
+    Title = "Auto Mine Cycle",
+    Content =
+        "When enabled: wait 20 seconds -> OFF -> wait 0.8 seconds -> ON -> restart from 0."
+})
+
+Tabs.Settings:AddParagraph({
+    Title = "Blocks",
+    Content =
+        "All blocks are selected by default except Bedrock."
+})
+
+--------------------------------------------------
+-- SAVE MANAGER
+--------------------------------------------------
+
+SaveManager:SetLibrary(Fluent)
+
+InterfaceManager:SetLibrary(Fluent)
+
+SaveManager:IgnoreThemeSettings()
+
+SaveManager:SetIgnoreIndexes({
+    "InterfaceTheme"
+})
+
+InterfaceManager:SetFolder(
+    "ButtonEternal2"
+)
+
+SaveManager:SetFolder(
+    "ButtonEternal2"
+)
+
+InterfaceManager:BuildInterfaceSection(
+    Tabs.Settings
+)
+
+SaveManager:BuildConfigSection(
+    Tabs.Settings
+)
+
+--------------------------------------------------
+-- MAIN TAB
+--------------------------------------------------
+
+Window:SelectTab(1)
+
+--------------------------------------------------
+-- LOADED
+--------------------------------------------------
+
+Fluent:Notify({
+    Title = "Button Eternal 2",
+    Content = "Loaded. All blocks except Bedrock selected.",
+    Duration = 4
+})
