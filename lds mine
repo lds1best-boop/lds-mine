@@ -1,6 +1,3 @@
-----------------------------------------
--- FLUENT UI
---------------------------------------------------
 
 local Fluent = loadstring(game:HttpGet(
     "https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"
@@ -111,9 +108,11 @@ local StoneOres = {
 local Blocks = {}
 
 for i, _ in pairs(BlocksData) do
+
     if string.lower(tostring(i)) ~= "bedrock" then
         table.insert(Blocks, i)
     end
+
 end
 
 table.sort(Blocks)
@@ -129,16 +128,18 @@ for _, blockId in ipairs(Blocks) do
 end
 
 --------------------------------------------------
--- DEFAULT:
--- EVERYTHING SELECTED EXCEPT BEDROCK
+-- DEFAULT SELECTION
+-- EVERYTHING EXCEPT BEDROCK
 --------------------------------------------------
 
 local DefaultSelected = {}
 
 for _, blockId in ipairs(Blocks) do
+
     if string.lower(tostring(blockId)) ~= "bedrock" then
         DefaultSelected[blockId] = true
     end
+
 end
 
 --------------------------------------------------
@@ -165,8 +166,11 @@ local function rebuildSelectedBlocks(value)
                 SelectedBlocks,
                 blockId
             )
+
         end
+
     end
+
 end
 
 rebuildSelectedBlocks(DefaultSelected)
@@ -440,11 +444,11 @@ local function damageSpecificBlock(blockName)
 end
 
 --------------------------------------------------
--- RESET TOKEN
+-- MINING RESET TOKEN
 --------------------------------------------------
 
 G.MiningResetToken =
-    G.MiningResetToken or 0
+    (G.MiningResetToken or 0) + 1
 
 local function resetMiningCycle()
 
@@ -491,6 +495,7 @@ local function mineBlock(
         damageSpecificBlock(block.Name)
 
         task.wait()
+
     end
 
     return true
@@ -559,10 +564,6 @@ local function getBestBlockAtDepth(
                         +
                         math.abs(z - lastZ)
 
-                    --------------------------------------------------
-                    -- STONE
-                    --------------------------------------------------
-
                     if StoneOres[info.Id] then
 
                         table.insert(
@@ -572,10 +573,6 @@ local function getBestBlockAtDepth(
                                 Distance = distance
                             }
                         )
-
-                    --------------------------------------------------
-                    -- ORE
-                    --------------------------------------------------
 
                     else
 
@@ -590,14 +587,16 @@ local function getBestBlockAtDepth(
                                 Distance = distance
                             }
                         )
+
                     end
+
                 end
             end
         end
     end
 
     --------------------------------------------------
-    -- ORE FIRST
+    -- ORES FIRST
     --------------------------------------------------
 
     table.sort(
@@ -609,6 +608,7 @@ local function getBestBlockAtDepth(
             end
 
             return a.Distance < b.Distance
+
         end
     )
 
@@ -617,7 +617,7 @@ local function getBestBlockAtDepth(
     end
 
     --------------------------------------------------
-    -- STONE FALLBACK
+    -- STONE ONLY IF NO ORE
     --------------------------------------------------
 
     if #stoneBlocks > 0 then
@@ -636,12 +636,14 @@ local function getBestBlockAtDepth(
 end
 
 --------------------------------------------------
--- VARIABLES
+-- MINING VARIABLES
 --------------------------------------------------
 
 local AutoMineEnabled = false
 
 local AutoMineLoopId = 0
+
+local AutoChanging = false
 
 --------------------------------------------------
 -- START MINING
@@ -665,12 +667,13 @@ local function startMining()
         local currentMaxDepth = nil
 
         --------------------------------------------------
-        -- RANDOM FINAL LAYERS
+        -- FINAL LAYER MODE
         --------------------------------------------------
 
         local randomMining = false
 
         local randomX = 9
+
         local randomZ = 9
 
         local randomLayers = {}
@@ -691,7 +694,9 @@ local function startMining()
                 SelectedBlocks
 
             if #selected == 0 then
+
                 task.wait(0.25)
+
                 continue
             end
 
@@ -789,7 +794,7 @@ local function startMining()
                 end
 
                 --------------------------------------------------
-                -- NORMAL MINING
+                -- NORMAL DOWNWARD MINING
                 --
                 -- 0
                 -- -1
@@ -830,6 +835,7 @@ local function startMining()
                                     selected,
                                     resetToken
                                 )
+
                             end
                         end
 
@@ -853,12 +859,13 @@ local function startMining()
 
                         randomX = 9
                         randomZ = 9
+
                     end
 
                 else
 
                     --------------------------------------------------
-                    -- RANDOM FINAL 3 LAYERS
+                    -- FINAL 3 LAYERS
                     --------------------------------------------------
 
                     local randomDepth =
@@ -884,6 +891,7 @@ local function startMining()
                         if x and y and z then
 
                             randomX = x
+
                             randomZ = z
 
                             mineBlock(
@@ -891,6 +899,7 @@ local function startMining()
                                 selected,
                                 resetToken
                             )
+
                         end
 
                     else
@@ -903,6 +912,7 @@ local function startMining()
 
                         task.wait()
                     end
+
                 end
 
             else
@@ -939,7 +949,7 @@ local AutoMineToggle =
             Title = "Auto Mine",
 
             Description =
-                "ON 20s -> OFF 0.8s -> ON",
+                "ON 20s -> OFF 1s -> ON",
 
             Default = false
         }
@@ -955,22 +965,28 @@ AutoMineToggle:OnChanged(function()
         AutoMineToggle.Value
 
     --------------------------------------------------
+    -- IMPORTANT:
+    -- IGNORE SetValue() CAUSED BY
+    -- OUR AUTOMATIC OFF/ON
+    --------------------------------------------------
+
+    if AutoChanging then
+        return
+    end
+
+    --------------------------------------------------
     -- MANUAL OFF
     --------------------------------------------------
 
     if not enabled then
+
+        AutoMineLoopId += 1
 
         AutoMineEnabled = false
 
         G.Settings["Auto Mine"] = false
 
         resetMiningCycle()
-
-        --------------------------------------------------
-        -- CANCEL OLD 20 SECOND LOOP
-        --------------------------------------------------
-
-        AutoMineLoopId += 1
 
         return
     end
@@ -981,7 +997,11 @@ AutoMineToggle:OnChanged(function()
 
     if #SelectedBlocks == 0 then
 
+        AutoChanging = true
+
         AutoMineToggle:SetValue(false)
+
+        AutoChanging = false
 
         Fluent:Notify({
             Title = "Auto Mine",
@@ -993,7 +1013,7 @@ AutoMineToggle:OnChanged(function()
     end
 
     --------------------------------------------------
-    -- ENABLE
+    -- TURN ON
     --------------------------------------------------
 
     AutoMineEnabled = true
@@ -1001,13 +1021,13 @@ AutoMineToggle:OnChanged(function()
     G.Settings["Auto Mine"] = true
 
     --------------------------------------------------
-    -- START FROM 0
+    -- START FROM DEPTH 0
     --------------------------------------------------
 
     startMining()
 
     --------------------------------------------------
-    -- NEW TOGGLE LOOP
+    -- NEW TIMER
     --------------------------------------------------
 
     AutoMineLoopId += 1
@@ -1030,16 +1050,11 @@ AutoMineToggle:OnChanged(function()
 
             task.wait(20)
 
-            --------------------------------------------------
-            -- CHECK
-            --------------------------------------------------
+            if myLoopId ~= AutoMineLoopId then
+                break
+            end
 
-            if
-                not AutoMineToggle.Value
-                or not G.Settings["Auto Mine"]
-                or not AutoMineEnabled
-                or myLoopId ~= AutoMineLoopId
-            then
+            if not AutoMineToggle.Value then
                 break
             end
 
@@ -1054,20 +1069,23 @@ AutoMineToggle:OnChanged(function()
             resetMiningCycle()
 
             --------------------------------------------------
-            -- UI OFF
+            -- CHANGE UI TO OFF
+            --
+            -- AutoChanging prevents callback
+            -- from killing our timer.
             --------------------------------------------------
+
+            AutoChanging = true
 
             AutoMineToggle:SetValue(false)
 
-            --------------------------------------------------
-            -- WAIT 0.8 SECONDS
-            --------------------------------------------------
-
-            task.wait(0.8)
+            AutoChanging = false
 
             --------------------------------------------------
-            -- CHECK AGAIN
+            -- WAIT 1 SECOND
             --------------------------------------------------
+
+            task.wait(1)
 
             if myLoopId ~= AutoMineLoopId then
                 break
@@ -1082,17 +1100,23 @@ AutoMineToggle:OnChanged(function()
             G.Settings["Auto Mine"] = true
 
             --------------------------------------------------
-            -- UI ON
+            -- CHANGE UI TO ON
             --------------------------------------------------
 
+            AutoChanging = true
+
             AutoMineToggle:SetValue(true)
+
+            AutoChanging = false
 
             --------------------------------------------------
             -- START AGAIN FROM 0
             --------------------------------------------------
 
             startMining()
+
         end
+
     end)
 end)
 
@@ -1123,10 +1147,14 @@ local BlockDropdown =
 
 BlockDropdown:OnChanged(function(value)
 
+    --------------------------------------------------
+    -- UPDATE SELECTED BLOCKS
+    --------------------------------------------------
+
     rebuildSelectedBlocks(value)
 
     --------------------------------------------------
-    -- REMOVE BEDROCK
+    -- FORCE REMOVE BEDROCK
     --------------------------------------------------
 
     local cleanSelection = {}
@@ -1141,14 +1169,16 @@ BlockDropdown:OnChanged(function(value)
                 cleanSelection,
                 blockId
             )
+
         end
+
     end
 
     SelectedBlocks =
         cleanSelection
 
     --------------------------------------------------
-    -- IF AUTO MINE IS ON,
+    -- IF MINING IS RUNNING:
     -- RESTART FROM 0
     --------------------------------------------------
 
@@ -1161,6 +1191,7 @@ BlockDropdown:OnChanged(function(value)
         if AutoMineEnabled then
             startMining()
         end
+
     end
 end)
 
@@ -1176,13 +1207,13 @@ LocalPlayer.CharacterAdded:Connect(
         end
 
         --------------------------------------------------
-        -- KILL CURRENT MINING LOOP
+        -- STOP CURRENT MINING LOOP
         --------------------------------------------------
 
         resetMiningCycle()
 
         --------------------------------------------------
-        -- WAIT FOR RESPAWN
+        -- WAIT FOR CHARACTER
         --------------------------------------------------
 
         task.wait(0.8)
@@ -1194,29 +1225,30 @@ LocalPlayer.CharacterAdded:Connect(
         if AutoMineEnabled then
             startMining()
         end
+
     end
 )
 
 --------------------------------------------------
--- SETTINGS
+-- SETTINGS INFO
 --------------------------------------------------
 
 Tabs.Settings:AddParagraph({
     Title = "Mining",
     Content =
-        "Mining always starts at depth 0 and goes down to the maximum depth unlocked by your rank."
+        "Mining starts at depth 0 and goes down to the maximum depth unlocked by your rank."
 })
 
 Tabs.Settings:AddParagraph({
-    Title = "Rank Unlock",
+    Title = "New Layer",
     Content =
-        "When a new deeper layer is unlocked, mining resets to 0."
+        "When a deeper layer is unlocked, mining resets back to depth 0."
 })
 
 Tabs.Settings:AddParagraph({
     Title = "Auto Mine Cycle",
     Content =
-        "When enabled: wait 20 seconds -> OFF -> wait 0.8 seconds -> ON -> restart from 0."
+        "ON -> wait 20 seconds -> OFF -> wait 1 second -> ON -> restart from 0."
 })
 
 Tabs.Settings:AddParagraph({
@@ -1256,7 +1288,7 @@ SaveManager:BuildConfigSection(
 )
 
 --------------------------------------------------
--- MAIN TAB
+-- SELECT MAIN TAB
 --------------------------------------------------
 
 Window:SelectTab(1)
@@ -1267,6 +1299,7 @@ Window:SelectTab(1)
 
 Fluent:Notify({
     Title = "Button Eternal 2",
-    Content = "Loaded. All blocks except Bedrock selected.",
+    Content =
+        "Loaded. All blocks except Bedrock selected.",
     Duration = 4
 })
